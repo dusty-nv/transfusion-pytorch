@@ -1510,7 +1510,8 @@ class Transfusion(Module):
     ) -> Float['']:
 
         shape = modalities.shape
-
+        modalities = modalities.to(self.device)
+        
         if self.num_modalities > 1:
             assert exists(modality_type), '`modality_type` must be explicitly passed in on forward when training on greater than 1 modality'
 
