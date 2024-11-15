@@ -49,7 +49,11 @@ examples = []
 test = [
     "pytest",
 ]
-
+train = [
+    "torchinfo",
+    "transformers",
+    "trl",
+]
 [tool.ruff]
 line-length = 1000
 
