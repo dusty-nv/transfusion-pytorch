@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 import argparse
-
 import torch
-import torchinfo
 
 from tqdm import tqdm
 from pprint import pprint
 
 from torch import randint, randn
-from torch.profiler import profile as profiler, record_function, ProfilerActivity
+from torch.profiler import profile as Profiler, ProfilerActivity, record_function
 
 from transfusion_pytorch import Transfusion, print_modality_sample
 
-
+try:
+    import torchinfo
+    USE_TORCHINFO=True
+except ImportError as error:
+    print(f"Disabling use of torchinfo ({error})\npip install torchinfo for additional statistics")
+    USE_TORCHINFO=False
+    
+    
 def benchmark(
     batch_size=1, 
     image_size=16, 
@@ -41,9 +46,12 @@ def benchmark(
         **kwargs).to(device)
     
     print(model)
-    torchinfo.summary(model)
-    #print('Total params:', sum(p.numel() for p in model.parameters()))
-    #print('Train params:', sum(p.numel() for p in model.parameters() if p.requires_grad))
+    
+    if USE_TORCHINFO:
+        torchinfo.summary(model)
+    else:
+        print('Total params:', sum(p.numel() for p in model.parameters()))
+        print('Train params:', sum(p.numel() for p in model.parameters() if p.requires_grad))
     
     vocab = kwargs.get('num_text_tokens', 256)
     batch = []
@@ -59,30 +67,34 @@ def benchmark(
         batch.append(context)
                  
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
-    profiler_activities = [ProfilerActivity.CUDA] # ProfilerActivity.CPU, 
     
-    with profiler(activities=profiler_activities, record_shapes=True, profile_memory=True) as prof:
-        with record_function('train'):
-            with tqdm(total=train_steps) as pbar:
-                for step in range(train_steps):
-                    loss = model(batch)
-                    loss.backward()
+    if profile:
+        profiler_activities = [ProfilerActivity.CUDA] # ProfilerActivity.CPU, 
+        profiler = Profiler(activities=profiler_activities, record_shapes=True, profile_memory=True)
+        profiler.start()
 
-                    optimizer.step()
-                    optimizer.zero_grad()
+    with tqdm(total=train_steps) as pbar:
+        for step in range(train_steps):
+            loss = model(batch)
+            loss.backward()
 
-                    pbar.set_description(f'train loss={loss.item():.3f}')
-                    pbar.update(1)
-                    prof.step()
-        
-        with record_function('sample'):       
-            print_modality_sample(model.sample(max_length=max_gen_length))
+            optimizer.step()
+            optimizer.zero_grad()
 
-    prof_averages = prof.key_averages()
+            pbar.set_description(f'train loss={loss.item():.3f}')
+            pbar.update(1)
+            
+            if profile:
+                profiler.step()
+     
+    print_modality_sample(model.sample(max_length=max_gen_length))
     
-    print(prof_averages.table(sort_by='cuda_time_total', row_limit=25, top_level_events_only=True))
-    print(prof_averages.table(sort_by='cuda_memory_usage', row_limit=25, top_level_events_only=True))
-    
+    if profile:
+        profiler.stop()
+        prof_averages = profiler.key_averages()
+        print(prof_averages.table(sort_by='cuda_time_total', row_limit=25, top_level_events_only=True))
+        print(prof_averages.table(sort_by='cuda_memory_usage', row_limit=25, top_level_events_only=True))
+
 def scope_kwargs(**kwargs):
     out = {}
     for k,v in kwargs.items():
