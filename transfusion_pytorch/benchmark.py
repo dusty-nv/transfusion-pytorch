@@ -59,9 +59,9 @@ def benchmark(
         batch.append(context)
                  
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
-    profiler_activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+    profiler_activities = [ProfilerActivity.CUDA] # ProfilerActivity.CPU, 
     
-    with profiler(activities=profiler_activities, record_shapes=True) as prof:
+    with profiler(activities=profiler_activities, record_shapes=True, profile_memory=True) as prof:
         with record_function('train'):
             with tqdm(total=train_steps) as pbar:
                 for step in range(train_steps):
@@ -73,12 +73,16 @@ def benchmark(
 
                     pbar.set_description(f'train loss={loss.item():.3f}')
                     pbar.update(1)
+                    prof.step()
         
         with record_function('sample'):       
             print_modality_sample(model.sample(max_length=max_gen_length))
 
-        print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
-        
+    prof_averages = prof.key_averages()
+    
+    print(prof_averages.table(sort_by='cuda_time_total', row_limit=25, top_level_events_only=True))
+    print(prof_averages.table(sort_by='cuda_memory_usage', row_limit=25, top_level_events_only=True))
+    
 def scope_kwargs(**kwargs):
     out = {}
     for k,v in kwargs.items():
@@ -122,7 +126,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--train_steps', type=int, default=16, help='the number of training batches to run')
     parser.add_argument('--text_length', type=int, default=16, help='the number of tokens in each text message')
-    parser.add_argument('--max_gen_length', type=int, default=64, help='the number of tokens in each text message')
+    parser.add_argument('--max_gen_length', type=int, default=32, help='the number of tokens in each text message')
     parser.add_argument('--modality_pattern', type=str, default=[], nargs='+', help="the modality pattern to follow when constructing contexts (list of 'text', 'image')")
     parser.add_argument('--profile', action='store_true', help='enable layer-level profiling and memory usage in PyTorch')
     
