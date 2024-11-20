@@ -161,6 +161,10 @@ sampled = model.generate_text_only(text[:, :1], 1024)
 - [ ] test out modality only training on oxford flowers
 - [ ] given findings in pi-zero robotics foundation model, add mixture of experts for both attention and feedforward as options
 - [ ] able to turn off meta information and use fixed shape per modality
+- [ ] make kv caching work during sampling and add tests
+- [ ] add down/up sampling unets with skip connections, customizable per modality, with attention in the middle, as in simple diffusion paper
+- [ ] allow for rotary positions to be turned on for 1d modalities, so transfusion can be used for action generation across time
+- [ ] add a debug mode behind environment flag for preemptive shape error messages
 
 ## Citations
 
@@ -228,14 +232,5 @@ sampled = model.generate_text_only(text[:, :1], 1024)
     author  = {Zhanchao Zhou and Tianyi Wu and Zhiyun Jiang and Zhenzhong Lan},
     year    = {2024},
     url     = {https://api.semanticscholar.org/CorpusID:273532030}
-}
-```
-
-```bibtex
-@inproceedings{Yao2024FasterDiTTF,
-    title   = {FasterDiT: Towards Faster Diffusion Transformers Training without Architecture Modification},
-    author  = {Jingfeng Yao and Wang Cheng and Wenyu Liu and Xinggang Wang},
-    year    = {2024},
-    url     = {https://api.semanticscholar.org/CorpusID:273346237}
 }
 ```
