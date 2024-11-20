@@ -51,6 +51,7 @@ test = [
 ]
 train = [
     "torchinfo",
+    "torchvision",
     "transformers",
     "trl",
 ]
