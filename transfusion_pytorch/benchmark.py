@@ -6,16 +6,11 @@ from tqdm import tqdm
 from pprint import pprint
 
 from torch import randint, randn
-from torch.profiler import profile as Profiler, ProfilerActivity, record_function
+from torch.profiler import profile as Profiler, ProfilerActivity
 
 from transfusion_pytorch import Transfusion, print_modality_sample
 
-try:
-    import torchinfo
-    USE_TORCHINFO=True
-except ImportError as error:
-    print(f"Disabling use of torchinfo ({error})\npip install torchinfo for additional statistics")
-    USE_TORCHINFO=False
+from .utils import TransfusionArgParser, print_model_info, print_system_info, scope_kwargs
     
     
 def benchmark(
@@ -44,14 +39,8 @@ def benchmark(
         dim_latent=dim_latent, 
         modality_default_shape=tuple([2]*len(dim_latent)),
         **kwargs).to(device)
-    
-    print(model)
-    
-    if USE_TORCHINFO:
-        torchinfo.summary(model)
-    else:
-        print('Total params:', sum(p.numel() for p in model.parameters()))
-        print('Train params:', sum(p.numel() for p in model.parameters() if p.requires_grad))
+
+    print_model_info(model)
     
     vocab = kwargs.get('num_text_tokens', 256)
     batch = []
@@ -95,45 +84,10 @@ def benchmark(
         print(prof_averages.table(sort_by='cuda_time_total', row_limit=25, top_level_events_only=True))
         print(prof_averages.table(sort_by='cuda_memory_usage', row_limit=25, top_level_events_only=True))
 
-def scope_kwargs(**kwargs):
-    out = {}
-    for k,v in kwargs.items():
-        namespace = out
-        scopes = k.split('.')
-        for i, scope in enumerate(scopes):
-            namespace = namespace.setdefault(scope, {} if i < len(scopes)-1 else v)  
-    return out
-
-def TransfusionArgParser(parser=None):
-    if parser is None:
-        parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-     
-    parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--image_size', type=int, default=8)
-
-    parser.add_argument('--num_text_tokens', '--vocab_size', type=int, default=256, help='size of the tokenizer vocabulary (number of token IDs)')
-    parser.add_argument('--dim_latent', type=int, nargs='+', default=[384], help='modality latency dimensions (can specify multiple)')
-
-    parser.add_argument('--transformer.dim', type=int, default=512)
-    parser.add_argument('--transformer.depth', type=int, default=8)
-    parser.add_argument('--transformer.heads', type=int, default=8)
-    parser.add_argument('--transformer.dim_head', type=int, default=64)
-    parser.add_argument('--transformer.dropout', type=float, default=0.0)
-    parser.add_argument('--transformer.ff_expansion_factor', type=int, default=4)
-    parser.add_argument('--transformer.unet_skips', type=bool, default=True)
-    parser.add_argument('--transformer.use_flex_attn', type=bool, default=False)
-
-    return parser
-         
                   
 if __name__ == '__main__': 
-    print(torch.__config__.show())
-    print(f'PyTorch version: {torch.__version__}')
+    print_system_info()
     
-    if torch.cuda.is_available():
-        print(f'CUDA version:    {torch.version.cuda} ({torch.cuda.get_device_name()})')
-        print(f'cuDNN version:   {torch.backends.cudnn.version()}\n')
-        
     parser = TransfusionArgParser()
 
     parser.add_argument('--train_steps', type=int, default=16, help='the number of training batches to run')
