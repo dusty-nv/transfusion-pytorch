@@ -20,9 +20,11 @@ from transfusion_pytorch.transfusion import (
 
 @pytest.mark.parametrize('cache_kv', (False, True))
 @pytest.mark.parametrize('use_flex_attn', (False, True))
+@pytest.mark.parametrize('reconstruction_loss_weight', (0., 0.1))
 def test_transfusion(
     cache_kv: bool,
     use_flex_attn: bool,
+    reconstruction_loss_weight: float
 ):
 
     if use_flex_attn and (not exists(flex_attention) or not cuda_available):
@@ -33,10 +35,11 @@ def test_transfusion(
 
     model = Transfusion(
         num_text_tokens = text_tokens,
-        dim_latent = (384, 192), # specify multiple latent dimensions
+        dim_latent = (384, 192),
         modality_default_shape = ((32,), (64,)),
+        reconstruction_loss_weight = reconstruction_loss_weight,
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 2,
             use_flex_attn = use_flex_attn
         )
@@ -80,7 +83,7 @@ def test_auto_modality_transform(
         channel_first_latent = True,
         modality_default_shape = (32,),
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 2,
             use_flex_attn = use_flex_attn
         )
@@ -117,7 +120,7 @@ def test_text(
         channel_first_latent = True,
         modality_default_shape = (32,),
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 2,
             use_flex_attn = use_flex_attn
         )
@@ -141,7 +144,7 @@ def test_modality_only(
         channel_first_latent = channel_first,
         modality_default_shape = (32,),
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 2,
             use_flex_attn = False
         )
@@ -156,6 +159,7 @@ def test_modality_only(
 
     loss.backward()
 
+    model.generate_modality_only(modality_type = 1)
 
 @pytest.mark.parametrize('custom_time_fn', (False, True))
 def test_text_image_end_to_end(
@@ -172,8 +176,8 @@ def test_text_image_end_to_end(
         modality_encoder = mock_vae_encoder,
         modality_decoder = mock_vae_decoder,
         transformer = dict(
-            dim = 512,
-            depth = 8
+            dim = 64,
+            depth = 2
         )
     )
 
@@ -195,24 +199,26 @@ def test_text_image_end_to_end(
 
     # allow researchers to experiment with different time distributions across multiple modalities in a sample
 
-    def modality_length_to_times(modality_length):
-        has_modality = modality_length > 0
-        return torch.where(has_modality, torch.ones_like(modality_length), 0.)
+    def num_modalities_to_times(num_modalities):
+        batch = num_modalities.shape[0]
+        device = num_modalities.device
+        total_modalities = num_modalities.amax().item()
+        return torch.ones((batch, total_modalities), device = device)
 
-    time_fn = modality_length_to_times if custom_time_fn else None
+    time_fn = num_modalities_to_times if custom_time_fn else None
 
     # forward
 
     loss = model(
         text_and_images,
-        modality_length_to_times_fn = time_fn
+        num_modalities_to_times_fn = time_fn
     )
 
     loss.backward()
 
     # after much training
 
-    one_multimodal_sample = model.sample()
+    one_multimodal_sample = model.sample(max_length = 128)
 
 def test_velocity_consistency():
     mock_encoder = nn.Conv2d(3, 384, 3, padding = 1)
@@ -227,7 +233,7 @@ def test_velocity_consistency():
         modality_encoder = mock_encoder,
         modality_decoder = mock_decoder,
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 1
         )
     )
@@ -250,14 +256,9 @@ def test_velocity_consistency():
         ]
     ]
 
-    def modality_length_to_times(modality_length):
-        has_modality = modality_length > 0
-        return torch.where(has_modality, torch.ones_like(modality_length), 0.)
-
     loss, breakdown = model(
         text_and_images,
         velocity_consistency_ema_model = ema_model,
-        modality_length_to_times_fn = modality_length_to_times,
         return_breakdown = True
     )
 
@@ -274,7 +275,7 @@ def test_axial_pos_emb():
         add_pos_emb = True,
         modality_num_dim = (2, 1),
         transformer = dict(
-            dim = 512,
+            dim = 64,
             depth = 8
         )
     )
@@ -294,4 +295,35 @@ def test_axial_pos_emb():
 
     # after much training
 
-    one_multimodal_sample = model.sample()
+    one_multimodal_sample = model.sample(max_length = 128)
+
+# unet related
+
+def test_modality_only_with_unet():
+
+    model = Transfusion(
+        num_text_tokens = 10,
+        dim_latent = 4,
+        modality_default_shape = (14, 14),
+        pre_post_transformer_enc_dec = (
+            nn.Conv2d(4, 64, 3, 2, 1),
+            nn.ConvTranspose2d(64, 4, 3, 2, 1, output_padding = 1),
+        ),
+        channel_first_latent = True,
+        add_pos_emb = True,
+        modality_num_dim = 2,
+        velocity_consistency_loss_weight = 0.1,
+        transformer = dict(
+            dim = 64,
+            depth = 1,
+            dim_head = 32,
+            heads = 8
+        )
+    )
+
+    x = torch.randn(1, 4, 14, 14)
+
+    loss = model(x)
+    loss.backward()
+
+    sampled = model.generate_modality_only()

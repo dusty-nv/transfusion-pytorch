@@ -39,12 +39,14 @@ class Decoder(Module):
 model = Transfusion(
     num_text_tokens = 10,
     dim_latent = 4,
+    channel_first_latent = False,
     modality_default_shape = (14, 14),
     modality_encoder = Encoder(),
     modality_decoder = Decoder(),
     add_pos_emb = True,
     modality_num_dim = 2,
     velocity_consistency_loss_weight = 0.1,
+    reconstruction_loss_weight = 0.1,
     transformer = dict(
         dim = 64,
         depth = 4,

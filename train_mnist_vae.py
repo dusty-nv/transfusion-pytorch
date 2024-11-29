@@ -59,7 +59,7 @@ dataset = MnistDataset()
 
 # contrived encoder / decoder with layernorm at bottleneck
 
-autoencoder_train_steps = 15000
+autoencoder_train_steps = 15_000
 dim_latent = 16
 
 class Normalize(Module):
@@ -133,11 +133,7 @@ model = Transfusion(
 
 # training transfusion
 
-def collate_fn(data):
-    data = [*map(list, data)]
-    return data
-
-dataloader = DataLoader(dataset, batch_size = 16, collate_fn = collate_fn, shuffle = True)
+dataloader = model.create_dataloader(dataset, batch_size = 16, shuffle = True)
 iter_dl = cycle(dataloader)
 
 optimizer = Adam(model.parameters_without_encoder_decoder(), lr = 3e-4)

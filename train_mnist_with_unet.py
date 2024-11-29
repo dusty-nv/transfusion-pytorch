@@ -2,7 +2,7 @@ from shutil import rmtree
 from pathlib import Path
 
 import torch
-from torch import tensor
+from torch import tensor, nn
 from torch.nn import Module
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
@@ -15,16 +15,17 @@ from torchvision.utils import save_image
 
 from transfusion_pytorch import Transfusion, print_modality_sample
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
 rmtree('./results', ignore_errors = True)
 results_folder = Path('./results')
 results_folder.mkdir(exist_ok = True, parents = True)
 
 # constants
 
-IMAGE_AFTER_TEXT = True
+IMAGE_AFTER_TEXT = False
 NUM_TRAIN_STEPS = 20_000
 SAMPLE_EVERY = 500
-CHANNEL_FIRST = True
 
 # functions
 
@@ -35,20 +36,12 @@ def divisible_by(num, den):
 
 class Encoder(Module):
     def forward(self, x):
-        x = rearrange(x, '... 1 (h p1) (w p2) -> ... h w (p1 p2)', p1 = 2, p2 = 2)
-
-        if CHANNEL_FIRST:
-            x = rearrange(x, 'b ... d -> b d ...')
-
+        x = rearrange(x, '... 1 (h p1) (w p2) -> ... (p1 p2) h w', p1 = 2, p2 = 2)
         return x * 2 - 1
 
 class Decoder(Module):
     def forward(self, x):
-
-        if CHANNEL_FIRST:
-            x = rearrange(x, 'b d ... -> b ... d')
-
-        x = rearrange(x, '... h w (p1 p2) -> ... 1 (h p1) (w p2)', p1 = 2, p2 = 2, h = 14)
+        x = rearrange(x, '... (p1 p2) h w -> ... 1 (h p1) (w p2)', p1 = 2, p2 = 2, h = 14)
         return ((x + 1) * 0.5).clamp(min = 0., max = 1.)
 
 model = Transfusion(
@@ -57,16 +50,20 @@ model = Transfusion(
     modality_default_shape = (14, 14),
     modality_encoder = Encoder(),
     modality_decoder = Decoder(),
+    pre_post_transformer_enc_dec = (
+        nn.Conv2d(4, 64, 3, 2, 1),
+        nn.ConvTranspose2d(64, 4, 3, 2, 1, output_padding = 1),
+    ),
     add_pos_emb = True,
     modality_num_dim = 2,
-    channel_first_latent = CHANNEL_FIRST,
+    channel_first_latent = True,
     transformer = dict(
         dim = 64,
         depth = 4,
         dim_head = 32,
         heads = 8
     )
-).cuda()
+).to(device)
 
 ema_model = model.create_ema()
 
@@ -85,7 +82,7 @@ class MnistDataset(Dataset):
         digit_tensor = T.PILToTensor()(pil)
         output =  tensor(labels), (digit_tensor / 255).float()
 
-        if IMAGE_AFTER_TEXT:
+        if not IMAGE_AFTER_TEXT:
             return output
 
         first, second = output
@@ -135,9 +132,9 @@ for step in range(1, NUM_TRAIN_STEPS + 1):
             continue
 
         if IMAGE_AFTER_TEXT:
-            maybe_label, maybe_image, *_ = one_multimodal_sample
-        else:
             _, maybe_image, maybe_label = one_multimodal_sample
+        else:
+            maybe_label, maybe_image, *_ = one_multimodal_sample
 
         filename = f'{step}.{maybe_label[1].item()}.png'
 
